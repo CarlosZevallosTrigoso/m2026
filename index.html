@@ -159,7 +159,7 @@
     display:flex; align-items:center; gap:7px; padding:5px 8px; cursor:default;
     border-bottom:1px solid var(--line);
   }
-  .side:first-child{padding-right:26px}   /* deja sitio al #num de la esquina */
+  .match .side{padding-right:30px}   /* hueco a la derecha en ambas filas: el #num (esquina sup.) nunca se monta sobre el % */
   .side:last-child{border-bottom:none}
   .side .nm{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px}
   .side .sc{font-variant-numeric:tabular-nums; color:var(--ink-dim); min-width:1.2ch; text-align:right}
@@ -255,6 +255,25 @@
   #rankAll{padding:14px 20px 28px}
   #rankAll h2{font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-dim); margin:0 0 9px}
   #surprise{padding:14px 20px 28px}
+  #calendar{padding:8px 20px 32px}
+  .cal-day h3{font-size:11px; letter-spacing:.04em; color:var(--ink); margin:18px 0 6px; padding-bottom:5px;
+    border-bottom:1px solid var(--line); text-transform:capitalize; position:sticky; top:0; background:var(--bg)}
+  .cal-row{display:grid; grid-template-columns:58px 1fr auto; gap:14px; align-items:center;
+    padding:8px 2px; border-bottom:1px solid var(--line)}
+  .cal-row:last-child{border-bottom:none}
+  .cal-row.cal-done{opacity:.6}
+  .cal-time{font-weight:600; font-size:13px; font-variant-numeric:tabular-nums; color:var(--accent); line-height:1.15}
+  .cal-time small{display:block; font-weight:400; font-size:9px; color:var(--ink-dim); letter-spacing:.03em}
+  .cal-match{display:flex; flex-direction:column; gap:3px; min-width:0}
+  .cal-teams{display:flex; align-items:center; gap:7px; white-space:nowrap; overflow:hidden}
+  .cal-teams .nm{font-size:12px}
+  .cal-teams .nm.w{font-weight:600}
+  .cal-teams .nm.ph{color:var(--ink-dim); font-style:italic}
+  .cal-teams .sc{font-weight:600; font-variant-numeric:tabular-nums; margin:0 3px; color:var(--ink)}
+  .cal-teams .vs{color:var(--ink-dim); margin:0 5px}
+  .cal-teams .pen{font-size:8px; color:var(--ink-dim); margin-left:4px}
+  .cal-loc{font-size:10px; color:var(--ink-dim); overflow:hidden; text-overflow:ellipsis}
+  .cal-stage{font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-dim); text-align:right; white-space:nowrap}
   table.report td.match2{text-align:left}
   table.report td.match2 .cell{display:flex; align-items:center; gap:6px; white-space:nowrap}
   table.report td.match2 .sc{color:var(--ink); font-weight:600; font-variant-numeric:tabular-nums; margin:0 3px}
@@ -298,6 +317,7 @@
       <button class="tab" data-view="bracket">Eliminatorias</button>
       <button class="tab" data-view="analysis">Análisis</button>
       <button class="tab" data-view="surprise">Sorpresas</button>
+      <button class="tab" data-view="cal">Calendario</button>
     </nav>
     <span class="spacer"></span>
     <label class="toggle disabled" id="autoToggle" title="Auto-predictor (modelo Elo + forma)">
@@ -378,6 +398,14 @@
         exacto previo. <b>Los penales cuentan como empate</b> (el resultado en juego). Ordena tocando una columna.
       </div>
       <div id="surprise"></div>
+    </section>
+
+    <section class="view" id="v-cal">
+      <div class="brnote">
+        Todos los partidos por día (<b>hora de Perú</b>, UTC-5). Debajo de cada uno, la <b>hora local</b> de la sede
+        con su huso y el estadio. La hora local y su huso vienen del propio calendario oficial; Perú no tiene horario de verano.
+      </div>
+      <div id="calendar"></div>
     </section>
     </div>
     <div id="toast"></div>
@@ -621,6 +649,20 @@ function surpriseReport(matches, eloMap, D){
   return out;
 }
 
+/* ---- horario (puro) ---- */
+// el dato trae la hora con el offset de la sede, p.ej. "13:00 UTC-6". Perú es UTC-5 fijo (sin horario de verano).
+function offsetOf(time){ const m=/UTC([+-]\d+)/.exec(time||''); return m?+m[1]:0; }
+function hmOf(time){ const m=/(\d{1,2}):(\d{2})/.exec(time||''); return m?{hh:+m[1],mm:+m[2]}:{hh:0,mm:0}; }
+// reloj de pared en Perú (UTC-5) para una fecha + hora-con-offset de sede
+function peruClock(date,time){
+  const off=offsetOf(time), {hh,mm}=hmOf(time);
+  const [Y,Mo,D]=(date||'1970-01-01').split('-').map(Number);
+  const ms=Date.UTC(Y,Mo-1,D,hh-off,mm) - 5*3600*1000;   // UTC = local-off ; Perú = UTC-5
+  const p=new Date(ms);
+  return { ms, y:p.getUTCFullYear(), mo:p.getUTCMonth()+1, d:p.getUTCDate(),
+           hh:p.getUTCHours(), mm:p.getUTCMinutes(), dow:p.getUTCDay() };
+}
+
 
 /* ============================================================
    HILO PRINCIPAL — red, estado y render.
@@ -667,7 +709,7 @@ function surpriseReport(matches, eloMap, D){
     stamp:$('#stamp'), pred:$('#predToggle'), auto:$('#autoToggle'), reset:$('#resetBtn'),
     export:$('#exportBtn'), importBtn:$('#importBtn'), simTools:$('#simTools'),
     fileInput:$('#fileInput'), toast:$('#toast'), panel:$('#modelPanel'), priorNote:$('#priorNote'),
-    report:$('#report'), eloBtn:$('#eloBtn'), rankAll:$('#rankAll'), surprise:$('#surprise'),
+    report:$('#report'), eloBtn:$('#eloBtn'), rankAll:$('#rankAll'), surprise:$('#surprise'), calendar:$('#calendar'),
   };
   function currentModel(){
     if(!zcache) return null;
@@ -1211,6 +1253,77 @@ function surpriseReport(matches, eloMap, D){
     els.surprise.appendChild(tbl);
   }
 
+  // ---------- vista calendario ----------
+  const DOW_ES=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+  const MES_ES=['','enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  function teamLabel(t){
+    const pl=parsePlaceholder(t);
+    if(pl) return { txt:(pl.kind==='W'?'Ganador ':'Perdedor ')+pl.num, ph:true };
+    return { txt:esName(t), ph:false };
+  }
+  function calRow(m,p){
+    const sc=m.score, ft=sc&&sc.ft;
+    const played = !!(ft && ft.length===2 && typeof ft[0]==='number');
+    const share = played ? outcomeShare(sc) : null;   // 1/.5/0
+    const row=document.createElement('div'); row.className='cal-row'+(played?' cal-done':'');
+
+    // hora Perú
+    const t=document.createElement('div'); t.className='cal-time';
+    t.textContent = String(p.hh).padStart(2,'0')+':'+String(p.mm).padStart(2,'0');
+    const tl=document.createElement('small'); tl.textContent='Perú'; t.appendChild(tl);
+    row.appendChild(t);
+
+    // partido + sede
+    const mid=document.createElement('div'); mid.className='cal-match';
+    const teams=document.createElement('div'); teams.className='cal-teams';
+    const a=teamLabel(m.team1), b=teamLabel(m.team2);
+    if(!a.ph) teams.appendChild(flagEl(m.team1));
+    const n1=document.createElement('span'); n1.className='nm'+(a.ph?' ph':'')+((played&&share===1)?' w':''); n1.textContent=a.txt; teams.appendChild(n1);
+    if(played){
+      const s=document.createElement('span'); s.className='sc'; s.textContent=ft[0]+'–'+ft[1]; teams.appendChild(s);
+    }else{
+      const vs=document.createElement('span'); vs.className='vs'; vs.textContent='vs'; teams.appendChild(vs);
+    }
+    const n2=document.createElement('span'); n2.className='nm'+(b.ph?' ph':'')+((played&&share===0)?' w':''); n2.textContent=b.txt; teams.appendChild(n2);
+    if(!b.ph) teams.appendChild(flagEl(m.team2));
+    if(played && sc.p){ const pe=document.createElement('span'); pe.className='pen'; pe.textContent='(pen '+sc.p[0]+'–'+sc.p[1]+')'; teams.appendChild(pe); }
+    else if(played && sc.et){ const pe=document.createElement('span'); pe.className='pen'; pe.textContent='(pró)'; teams.appendChild(pe); }
+    mid.appendChild(teams);
+
+    const loc=document.createElement('div'); loc.className='cal-loc';
+    const hm=hmOf(m.time), off=offsetOf(m.time);
+    loc.textContent = String(hm.hh).padStart(2,'0')+':'+String(hm.mm).padStart(2,'0')+
+      ' local (UTC'+(off>=0?'+':'')+off+') · '+(m.ground||'');
+    mid.appendChild(loc);
+    row.appendChild(mid);
+
+    // ronda
+    const st=document.createElement('div'); st.className='cal-stage';
+    st.textContent = roundLabel({group:m.group, round:m.round});
+    row.appendChild(st);
+    return row;
+  }
+  function renderCalendar(){
+    if(!els.calendar) return;
+    if(!matches){ els.calendar.textContent=''; return; }
+    const rows = matches
+      .map(m=>({ m, p:peruClock(m.date, m.time) }))
+      .sort((x,y)=> (x.p.ms-y.p.ms) || ((x.m.num||0)-(y.m.num||0)) );
+    const frag=document.createDocumentFragment();
+    let curKey=null, dayEl=null;
+    for(const {m,p} of rows){
+      const key=p.y+'-'+p.mo+'-'+p.d;
+      if(key!==curKey){
+        curKey=key;
+        dayEl=document.createElement('div'); dayEl.className='cal-day';
+        const h=document.createElement('h3'); h.textContent=DOW_ES[p.dow]+' '+p.d+' de '+MES_ES[p.mo];
+        dayEl.appendChild(h); frag.appendChild(dayEl);
+      }
+      dayEl.appendChild(calRow(m,p));
+    }
+    els.calendar.innerHTML=''; els.calendar.appendChild(frag);
+  }
+
   // ---------- carga / refresh ----------
   function setStatus(on,msg,retry){
     els.status.classList.toggle('on',!!on);
@@ -1235,6 +1348,7 @@ function surpriseReport(matches, eloMap, D){
       renderBracket();
       renderAnalysis();
       renderSurprise();
+      renderCalendar();
       loadElo();                                       // prior Elo aparte; no bloquea ni rompe la carga
     }catch(err){
       if(matches){ // conservar último render bueno
@@ -1342,6 +1456,7 @@ function surpriseReport(matches, eloMap, D){
     if(bracket) requestAnimationFrame(drawConnectors);
     if(v==='analysis') renderAnalysis();
     if(v==='surprise') renderSurprise();
+    if(v==='cal') renderCalendar();
   }
   $$('.tab').forEach(t=> t.addEventListener('click', ()=> setView(t.dataset.view)));
   els.pred.addEventListener('click', ()=>{
