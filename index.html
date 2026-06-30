@@ -220,6 +220,15 @@
   #modelPanel input[type=range]{width:100%; accent-color:var(--auto); margin:0}
   #modelPanel .prior{font-size:9px; color:var(--ink-dim); align-self:center; max-width:30ch; line-height:1.4}
   #modelPanel .prior b{color:var(--auto)}
+  #modelPanel select{background:var(--bg); color:var(--ink); border:1px solid var(--line-2); border-radius:2px;
+    font-family:inherit; font-size:11px; padding:3px 4px}
+  #modelPanel #simBtn{align-self:flex-end}
+  #mcSummary{padding:10px 16px 0}
+  #mcSummary h3{font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-dim); margin:0 0 8px}
+  #mcSummary table.report{margin:0}
+  #mcSummary td.tm{text-align:left}
+  #mcSummary td.tm .cell{display:flex; align-items:center; gap:7px; white-space:nowrap}
+  #mcSummary td.champ{color:var(--auto); font-weight:700}
   #modelPanel .prior.off b{color:var(--warn)}
 
   /* ---------- vista análisis (informe del modelo) ---------- */
@@ -256,6 +265,15 @@
   #rankAll h2{font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-dim); margin:0 0 9px}
   #surprise{padding:14px 20px 28px}
   #calendar{padding:8px 20px 32px}
+  .calfilter{display:inline-flex; align-items:center; gap:7px; margin:2px 20px 0; font-size:11px; color:var(--ink-dim); cursor:pointer}
+  .calfilter input{accent-color:var(--accent)}
+  #validation{padding:14px 20px 28px}
+  #validation h2{font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-dim); margin:18px 0 9px}
+  #validation h2:first-child{margin-top:2px}
+  #validation td.best{color:var(--accent); font-weight:700}
+  #validation .wf{font-size:8px; letter-spacing:.08em; text-transform:uppercase; color:var(--auto); border:1px solid var(--auto); border-radius:2px; padding:0 3px; margin-left:5px}
+  #validation .verdict{font-size:11px; color:var(--ink); margin:10px 0 0; line-height:1.5; max-width:62ch}
+  #validation .verdict b{color:var(--accent)}
   .cal-day h3{font-size:11px; letter-spacing:.04em; color:var(--ink); margin:18px 0 6px; padding-bottom:5px;
     border-bottom:1px solid var(--line); text-transform:capitalize; position:sticky; top:0; background:var(--bg)}
   .cal-row{display:grid; grid-template-columns:58px 1fr auto; gap:14px; align-items:center;
@@ -318,6 +336,7 @@
       <button class="tab" data-view="analysis">Análisis</button>
       <button class="tab" data-view="surprise">Sorpresas</button>
       <button class="tab" data-view="cal">Calendario</button>
+      <button class="tab" data-view="valid">Validación</button>
     </nav>
     <span class="spacer"></span>
     <label class="toggle disabled" id="autoToggle" title="Auto-predictor (modelo Elo + forma)">
@@ -345,11 +364,19 @@
     <div id="status" class="on"><div class="msg">cargando datos…</div></div>
 
     <div id="modelPanel">
-      <div class="knob"><label>forma <b id="w-form">40</b></label><input type="range" id="r-form" min="0" max="120" step="5" value="40"></div>
-      <div class="knob"><label>ataque <b id="w-atk">20</b></label><input type="range" id="r-atk" min="0" max="120" step="5" value="20"></div>
-      <div class="knob"><label>defensa <b id="w-def">20</b></label><input type="range" id="r-def" min="0" max="120" step="5" value="20"></div>
-      <div class="knob"><label>momentum <b id="w-mom">30</b></label><input type="range" id="r-mom" min="0" max="120" step="5" value="30"></div>
+      <div class="knob"><label>motor</label>
+        <select id="engineSel"><option value="form">Elo + forma</option><option value="dyn">Elo dinámico</option></select></div>
+      <div class="knob"><label>llave</label>
+        <select id="fillSel"><option value="greedy">favorito</option><option value="mc">Monte Carlo</option></select></div>
+      <div class="knob form-knob"><label>forma <b id="w-form">40</b></label><input type="range" id="r-form" min="0" max="120" step="5" value="40"></div>
+      <div class="knob form-knob"><label>ataque <b id="w-atk">20</b></label><input type="range" id="r-atk" min="0" max="120" step="5" value="20"></div>
+      <div class="knob form-knob"><label>defensa <b id="w-def">20</b></label><input type="range" id="r-def" min="0" max="120" step="5" value="20"></div>
+      <div class="knob form-knob"><label>momentum <b id="w-mom">30</b></label><input type="range" id="r-mom" min="0" max="120" step="5" value="30"></div>
+      <div class="knob" id="k-wrap" style="display:none"><label>K dinámico <b id="w-k">40</b></label><input type="range" id="r-k" min="0" max="80" step="5" value="40"></div>
       <div class="knob"><label>contundencia <b id="w-d">400</b></label><input type="range" id="r-d" min="150" max="700" step="10" value="400"></div>
+      <div class="knob" id="mc-wrap" style="display:none"><label>sims</label>
+        <select id="simN"><option value="5000">5 000</option><option value="20000" selected>20 000</option><option value="50000">50 000</option></select></div>
+      <button class="icon" id="simBtn" style="display:none">simular ▸</button>
       <div class="prior" id="priorNote">prior Elo: <b>—</b></div>
       <button class="icon" id="eloBtn" title="Volver a traer los ratings Elo y restaurar los pesos por defecto">↻ Elo</button>
     </div>
@@ -370,6 +397,7 @@
         Estado <b>real</b> de la eliminatoria. <b>auto</b> = el modelo rellena los cruces sin jugar con su favorita
         (Elo + forma). <b>predictivo</b> = marcas ganadores a mano, encima del auto. <b>reiniciar</b> borra solo tus picks.
       </div>
+      <div id="mcSummary" style="display:none"></div>
       <div id="bracket-wrap">
         <svg id="connectors"></svg>
         <div id="cols"></div>
@@ -405,7 +433,19 @@
         Todos los partidos por día (<b>hora de Perú</b>, UTC-5). Debajo de cada uno, la <b>hora local</b> de la sede
         con su huso y el estadio. La hora local y su huso vienen del propio calendario oficial; Perú no tiene horario de verano.
       </div>
+      <label class="calfilter"><input type="checkbox" id="hidePast"> ocultar partidos ya jugados</label>
       <div id="calendar"></div>
+    </section>
+
+    <section class="view" id="v-valid">
+      <div class="brnote">
+        Qué tan bien predice cada motor los partidos ya jugados. <b>Brier de puntos</b>: error cuadrático medio entre
+        la expectativa y el resultado (gana 1 · empate 0.5 · pierde 0); más bajo es mejor. <b>Decisivos</b>: aciertos
+        de favorito en partidos sin empate. Solo el <b>Elo dinámico</b> es walk-forward (predice cada partido con lo
+        anterior, sin fuga). Los demás son <b>in-sample</b>: el Elo es un snapshot actual y la forma incluye los propios
+        partidos que evalúa — por eso pueden parecer mejores de lo que serían prediciendo de verdad.
+      </div>
+      <div id="validation"></div>
     </section>
     </div>
     <div id="toast"></div>
@@ -663,6 +703,72 @@ function peruClock(date,time){
            hh:p.getUTCHours(), mm:p.getUTCMinutes(), dow:p.getUTCDay() };
 }
 
+/* ---- motores de simulación (puros) ---- */
+function movMult(gd){ gd=Math.abs(gd); if(gd<=1) return 1; if(gd===2) return 1.5; return (11+gd)/8; }
+// opción 3: Elo dinámico con margen de victoria. Camina los jugados desde el prior; penales = empate.
+// devuelve ratings finales + expectativa PRE-partido de cada jugado (walk-forward limpio desde el prior).
+function dynamicElo(matches, prior, K, D){
+  K=(K==null?40:K); D=D||400;
+  const R={}; const get=t=> (R[t]!=null?R[t]:(R[t]=(prior&&prior[t]!=null?prior[t]:FALLBACK_ELO)));
+  const played=matches.filter(m=>m.score&&m.score.ft&&!parsePlaceholder(m.team1)&&!parsePlaceholder(m.team2))
+    .slice().sort((a,b)=> (a.date||'').localeCompare(b.date||'') || ((a.num||0)-(b.num||0)));
+  const evals=[];
+  for(const m of played){
+    const a=m.team1,b=m.team2, ra=get(a), rb=get(b), we=eloExpect(ra,rb,D);
+    const s=outcomeShare(m.score); if(s==null) continue;
+    evals.push({team1:a,team2:b,we,share:s});
+    let gd=0; if(!m.score.p){ const sc=m.score.et||m.score.ft; gd=sc[0]-sc[1]; }
+    const delta=K*movMult(gd)*(s-we);
+    R[a]=ra+delta; R[b]=rb-delta;
+  }
+  return { ratings:R, evals };
+}
+// opción 1: Monte Carlo de la llave. Respeta resultados reales y picks manuales; muestrea lo no decidido.
+const KO_FEEDS={89:[74,77],90:[73,75],91:[76,78],92:[79,80],93:[83,84],94:[81,82],95:[86,88],96:[85,87],
+  97:[89,90],98:[93,94],99:[91,92],100:[95,96],101:[97,98],102:[99,100],104:[101,102]};
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function simulateKO(matches, overrides, model, N, rng){
+  rng=rng||Math.random; overrides=overrides||{}; N=N||20000;
+  const byNum={}; for(const m of matches) if(m.num!=null) byNum[m.num]=m;
+  function realWin(num){ const m=byNum[num]; if(!m||!m.score) return null; const idx=koWinnerIndex(m.score); if(idx<0) return null; const t=idx===0?m.team1:m.team2; return parsePlaceholder(t)?null:t; }
+  const counts={}, reach={};
+  const rt=t=> (t?(reach[t]||(reach[t]={r16:0,qf:0,sf:0,final:0,champ:0})):{r16:0,qf:0,sf:0,final:0,champ:0});
+  const inc=(num,t)=>{ if(!t) return; (counts[num]||(counts[num]={}))[t]=(counts[num][t]||0)+1; };
+  for(let s=0;s<N;s++){
+    const win={};
+    const decide=(num,p1,p2)=>{
+      if(!p1||!p2){ win[num]=p1||p2||null; return; }
+      const rw=realWin(num); let w;
+      if(rw&&(rw===p1||rw===p2)) w=rw;
+      else { const ov=overrides[num]; if(ov&&(ov===p1||ov===p2)) w=ov;
+        else { const pr=model?model.prob(p1,p2):0.5; w=rng()<pr?p1:p2; } }
+      win[num]=w; inc(num,w);
+    };
+    for(let n=73;n<=88;n++){ const m=byNum[n]; if(!m) continue; decide(n,m.team1,m.team2); }
+    for(let n=89;n<=104;n++){ if(n===103) continue; const f=KO_FEEDS[n]; if(!f) continue; decide(n,win[f[0]],win[f[1]]); }
+    for(let n=73;n<=88;n++) rt(win[n]).r16++;
+    for(let n=89;n<=96;n++) rt(win[n]).qf++;
+    for(let n=97;n<=100;n++) rt(win[n]).sf++;
+    for(let n=101;n<=102;n++) rt(win[n]).final++;
+    rt(win[104]).champ++;
+  }
+  const teams={}; for(const [t,r] of Object.entries(reach)){ if(!t) continue;
+    teams[t]={r16:r.r16/N,qf:r.qf/N,sf:r.sf/N,final:r.final/N,champ:r.champ/N}; }
+  const modalWinner={}, modalFreq={};
+  for(const [num,c] of Object.entries(counts)){ let best=null,bn=-1; for(const [t,k] of Object.entries(c)) if(k>bn){bn=k;best=t;} modalWinner[num]=best; modalFreq[num]=bn/N; }
+  return { teams, counts, modalWinner, modalFreq, N };
+}
+// opción 2: scoring de pronósticos (Brier de puntos, acierto en decisivos, calibración).
+function scoreShares(rows){
+  const n=rows.length; let brier=0,nDec=0,accDec=0; const B=5;
+  const calib=Array.from({length:B},(_,i)=>({lo:i/B,hi:(i+1)/B,sum:0,obs:0,n:0}));
+  for(const {p,s} of rows){ brier+=(p-s)*(p-s);
+    if(s!==0.5){ nDec++; if((p>0.5)===(s===1)) accDec++; }
+    const bi=Math.min(B-1,Math.floor(p*B)); calib[bi].sum+=p; calib[bi].obs+=s; calib[bi].n++; }
+  return { n, brier:n?brier/n:0, accDec:nDec?accDec/nDec:null, nDec,
+    calib:calib.filter(c=>c.n).map(c=>({lo:c.lo,hi:c.hi,pred:c.sum/c.n,obs:c.obs/c.n,n:c.n})) };
+}
+
 
 /* ============================================================
    HILO PRINCIPAL — red, estado y render.
@@ -699,6 +805,8 @@ function peruClock(date,time){
   let sortKey = 'strength', sortDir = -1;   // orden del informe (análisis)
   let rankSortKey = 'grank', rankSortDir = 1;   // orden del ranking general (grupos)
   let surpSortKey = 'surprise', surpSortDir = -1;   // orden de la vista sorpresas
+  let hidePast = false;                              // calendario: ocultar partidos ya jugados
+  let engine='form', fillMode='greedy', dynK=40, simN=20000, mcResult=null;   // motores de simulación
   const DEFAULT_WEIGHTS = { form:40, atk:20, def:20, mom:30, D:400 };
   const weights = { ...DEFAULT_WEIGHTS };
   const ELO_URL = 'https://raw.githubusercontent.com/ericsanmiguel/football_elo/main/docs/data/men/rankings.json';
@@ -710,9 +818,17 @@ function peruClock(date,time){
     export:$('#exportBtn'), importBtn:$('#importBtn'), simTools:$('#simTools'),
     fileInput:$('#fileInput'), toast:$('#toast'), panel:$('#modelPanel'), priorNote:$('#priorNote'),
     report:$('#report'), eloBtn:$('#eloBtn'), rankAll:$('#rankAll'), surprise:$('#surprise'), calendar:$('#calendar'),
+    hidePast:$('#hidePast'), validation:$('#validation'),
+    engineSel:$('#engineSel'), fillSel:$('#fillSel'), kWrap:$('#k-wrap'), mcWrap:$('#mc-wrap'),
+    simN:$('#simN'), simBtn:$('#simBtn'), mcSummary:$('#mcSummary'), rk:$('#r-k'), wk:$('#w-k'),
+    formKnobs: $$('.form-knob'),
   };
   function currentModel(){
     if(!zcache) return null;
+    if(engine==='dyn'){
+      const dyn = dynamicElo(matches, eloAvailable ? eloMap : {}, dynK, weights.D).ratings;
+      return makeModel({ eloMap:dyn, z:zcache, weights:{ form:0, atk:0, def:0, mom:0, D:weights.D } });
+    }
     return makeModel({ eloMap: eloAvailable ? eloMap : null, z: zcache, weights });
   }
 
@@ -912,8 +1028,47 @@ function peruClock(date,time){
     nums.forEach(n=>{ const m=byNum[n]; if(m) body.appendChild(matchEl(m,R)); });
     col.appendChild(body); return col;
   }
+  // resolver respaldado por Monte Carlo: misma interfaz que buildResolver, pero los ganadores
+  // son el modal de las sims y el % es la prob. NO condicional de ganar ese cruce.
+  function mcResolver(allMatches, mc){
+    const byNum={}; for(const m of allMatches) if(m.num!=null) byNum[m.num]=m;
+    const wc={};
+    function teamOf(slot){ const ph=parsePlaceholder(slot); if(!ph) return slot||null; return ph.kind==='W'?winner(ph.num):loserOf(ph.num); }
+    function sides(num){ const m=byNum[num]; if(!m) return [null,null]; return [teamOf(m.team1),teamOf(m.team2)]; }
+    function winner(num){ if(num in wc) return wc[num]; return wc[num]=(mc.modalWinner[num]||null); }
+    function loserOf(num){ const [t1,t2]=sides(num); const w=winner(num); return (w&&t1&&t2)?(w===t1?t2:t1):null; }
+    function realWinner(num){ const m=byNum[num]; if(!m) return null; const idx=koWinnerIndex(m.score); if(idx<0) return null; const [t1,t2]=sides(num); return idx===0?t1:t2; }
+    function source(num){ if(realWinner(num)) return 'real'; const [t1,t2]=sides(num); return (t1&&t2)?'auto':null; }
+    function probPair(num){ const c=mc.counts[num]||{}; const [t1,t2]=sides(num); if(!t1||!t2) return null; return [ (c[t1]||0)/mc.N, (c[t2]||0)/mc.N ]; }
+    return { teamOf, sides, winner, loser:loserOf, realWinner, isOverridden:()=>false, source, probPair, byNum };
+  }
+  function renderMCSummary(mc){
+    if(!els.mcSummary) return;
+    const rows=Object.entries(mc.teams).sort((a,b)=> b[1].champ-a[1].champ || b[1].final-a[1].final).slice(0,16);
+    const pc=x=> x>=0.995?'100':x<0.005?'·':(x*100).toFixed(x<0.1?1:0);
+    let h='<h3>Monte Carlo · '+mc.N.toLocaleString('es')+' simulaciones · probabilidad de avance</h3>';
+    h+='<table class="report"><thead><tr><th class="l">Equipo</th><th>Octavos</th><th>Cuartos</th><th>Semis</th><th>Final</th><th>Campeón</th></tr></thead><tbody>';
+    for(const [t,r] of rows){
+      h+='<tr><td class="tm"><span class="cell">'+flagImg(t)+esName(t)+'</span></td>'
+        +'<td>'+pc(r.r16)+'</td><td>'+pc(r.qf)+'</td><td>'+pc(r.sf)+'</td><td>'+pc(r.final)+'</td><td class="champ">'+pc(r.champ)+'</td></tr>';
+    }
+    h+='</tbody></table>';
+    els.mcSummary.innerHTML=h;
+  }
+  // bandera como string HTML (para tablas con innerHTML)
+  function flagImg(team){
+    const iso=TEAM_ISO[team];
+    if(!iso) return '';
+    return '<img src="https://flagcdn.com/'+iso+'.svg" alt="" style="width:18px;height:13px;object-fit:cover;border-radius:1px" onerror="this.style.display=\'none\'">';
+  }
   function renderBracket(){
-    const R = buildResolver(matches, overrides, autoMode ? currentModel() : null);
+    const useMC = autoMode && fillMode==='mc' && mcResult;
+    const R = useMC ? mcResolver(matches, mcResult)
+                    : buildResolver(matches, overrides, autoMode ? currentModel() : null);
+    if(els.mcSummary){
+      els.mcSummary.style.display = useMC ? 'block' : 'none';
+      if(useMC) renderMCSummary(mcResult);
+    }
     const byNum={}; matches.forEach(m=>{ if(m.num!=null) byNum[m.num]=m; });
     els.cols.innerHTML='';
     els.cols.classList.toggle('predictive', predictive);
@@ -1014,6 +1169,7 @@ function peruClock(date,time){
   // clic en un lado (modo predictivo)
   els.cols.addEventListener('click', e=>{
     if(!predictive) return;
+    if(autoMode && fillMode==='mc' && mcResult) return;   // en modo MC el cuadro es de solo lectura
     const side=e.target.closest('.side.pickable'); if(!side) return;
     const num=+side.closest('.match').dataset.num;
     const team=side.dataset.team;
@@ -1306,9 +1462,12 @@ function peruClock(date,time){
   function renderCalendar(){
     if(!els.calendar) return;
     if(!matches){ els.calendar.textContent=''; return; }
-    const rows = matches
+    const isPlayed = m => { const ft=m.score&&m.score.ft; return !!(ft&&ft.length===2&&typeof ft[0]==='number'); };
+    const src = hidePast ? matches.filter(m=>!isPlayed(m)) : matches;
+    const rows = src
       .map(m=>({ m, p:peruClock(m.date, m.time) }))
       .sort((x,y)=> (x.p.ms-y.p.ms) || ((x.m.num||0)-(y.m.num||0)) );
+    if(!rows.length){ els.calendar.innerHTML='<p class="dim" style="padding:10px 0">No quedan partidos por jugar.</p>'; return; }
     const frag=document.createDocumentFragment();
     let curKey=null, dayEl=null;
     for(const {m,p} of rows){
@@ -1322,6 +1481,64 @@ function peruClock(date,time){
       dayEl.appendChild(calRow(m,p));
     }
     els.calendar.innerHTML=''; els.calendar.appendChild(frag);
+  }
+
+  // ---------- vista validación ----------
+  function renderValidation(){
+    if(!els.validation) return;
+    if(!matches){ els.validation.textContent=''; return; }
+    if(!(eloAvailable && eloMap)){
+      els.validation.innerHTML='<p class="dim" style="padding:8px 0">Necesita el prior Elo. Pulsa ↻ Elo o revisa la conexión.</p>';
+      return;
+    }
+    const D=weights.D;
+    const rowsOf = shareFn=>{ const r=[]; for(const m of matches){ const s=outcomeShare(m.score); if(s==null) continue;
+      if(parsePlaceholder(m.team1)||parsePlaceholder(m.team2)) continue; const p=shareFn(m.team1,m.team2); if(p==null) continue; r.push({p,s}); } return r; };
+    const forma=makeModel({eloMap, z:zcache||{}, weights});
+    const base=scoreShares(rowsOf(()=>0.5));
+    const elo =scoreShares(rowsOf((a,b)=> (eloMap[a]!=null&&eloMap[b]!=null)?eloExpect(eloMap[a],eloMap[b],D):null));
+    const frm =scoreShares(rowsOf((a,b)=>forma.prob(a,b)));
+    const dyn =dynamicElo(matches, eloMap, dynK, D);
+    const din =scoreShares(dyn.evals.map(e=>({p:e.we,s:e.share})));
+    const engines=[
+      {name:'Base 50/50', r:base, wf:false},
+      {name:'Elo puro', r:elo, wf:false},
+      {name:'Elo + forma', r:frm, wf:false},
+      {name:'Elo dinámico · K='+dynK, r:din, wf:true},
+    ];
+    const bestBrier=Math.min(elo.brier,frm.brier,din.brier);
+
+    let h='<h2>Comparación de motores · '+base.n+' partidos jugados</h2>';
+    h+='<table class="report"><thead><tr><th class="l">Motor</th><th>Brier ↓</th><th>Acierto decisivos</th><th>n decisivos</th></tr></thead><tbody>';
+    for(const e of engines){
+      const isBest = e.r.brier===bestBrier && e.name!=='Base 50/50';
+      h+='<tr><td class="l">'+e.name+(e.wf?' <span class="wf">walk-forward</span>':'')+'</td>'
+        +'<td'+(isBest?' class="best"':'')+'>'+e.r.brier.toFixed(4)+'</td>'
+        +'<td>'+(e.r.accDec==null?'—':Math.round(e.r.accDec*100)+'%')+'</td>'
+        +'<td class="dim">'+(e.r.nDec||'—')+'</td></tr>';
+    }
+    h+='</tbody></table>';
+
+    h+='<h2>Calibración · Elo dinámico (walk-forward)</h2>';
+    h+='<table class="report"><thead><tr><th class="l">Prob. prevista</th><th>Media prevista</th><th>Observado</th><th>n</th></tr></thead><tbody>';
+    for(const c of din.calib){
+      h+='<tr><td class="l">'+Math.round(c.lo*100)+'–'+Math.round(c.hi*100)+'%</td><td>'+Math.round(c.pred*100)+'%</td><td>'+Math.round(c.obs*100)+'%</td><td class="dim">'+c.n+'</td></tr>';
+    }
+    h+='</tbody></table>';
+
+    // veredicto honesto, calculado del propio resultado
+    const dinBeatsElo = din.brier < elo.brier - 1e-4;
+    const formaBeatsDin = frm.brier < din.brier - 1e-4;
+    h+='<p class="verdict">El único motor sin fuga es el <b>dinámico</b>. '
+      + (dinBeatsElo
+          ? 'Aquí <b>sí</b> mejora sobre el Elo puro, así que la actualización por partido aporta señal.'
+          : 'Aquí <b>no</b> mejora sobre el Elo puro: actualizar por partido no aporta señal real en esta muestra.')
+      + (formaBeatsDin
+          ? ' «Elo + forma» tiene mejor Brier, pero es in-sample (la forma incluye los partidos que evalúa); esa ventaja es en parte sobreajuste, no pronóstico.'
+          : '')
+      + '</p>';
+
+    els.validation.innerHTML=h;
   }
 
   // ---------- carga / refresh ----------
@@ -1349,6 +1566,7 @@ function peruClock(date,time){
       renderAnalysis();
       renderSurprise();
       renderCalendar();
+      renderValidation();
       loadElo();                                       // prior Elo aparte; no bloquea ni rompe la carga
     }catch(err){
       if(matches){ // conservar último render bueno
@@ -1384,6 +1602,7 @@ function peruClock(date,time){
     if(view==='bracket' && autoMode) renderBracket();
     else if(view==='analysis') renderAnalysis();
     else if(view==='surprise') renderSurprise();   // la sorpresa depende del Elo
+    else if(view==='valid') renderValidation();     // la validación depende del Elo
   }
   function setPrior(updated){
     els.priorNote.classList.toggle('off', !eloAvailable);
@@ -1399,6 +1618,16 @@ function peruClock(date,time){
     const has = Object.keys(overrides).length>0;
     els.reset.style.display  = has ? '' : 'none';
     els.export.style.display = has ? '' : 'none';
+    // motor / llave: mostrar solo los controles pertinentes
+    els.formKnobs.forEach(k=> k.style.display = engine==='form' ? '' : 'none');
+    els.kWrap.style.display  = engine==='dyn' ? '' : 'none';
+    const mc = fillMode==='mc';
+    els.mcWrap.style.display = mc ? '' : 'none';
+    els.simBtn.style.display = mc ? '' : 'none';
+  }
+  function invalidateMC(){    // el modelo cambió: el Monte Carlo previo ya no es válido
+    mcResult = null;
+    if(els.mcSummary) els.mcSummary.style.display = 'none';
   }
   function toast(msg){
     els.toast.textContent=msg; els.toast.classList.add('on');
@@ -1457,7 +1686,9 @@ function peruClock(date,time){
     if(v==='analysis') renderAnalysis();
     if(v==='surprise') renderSurprise();
     if(v==='cal') renderCalendar();
+    if(v==='valid') renderValidation();
   }
+  if(els.hidePast) els.hidePast.addEventListener('change', ()=>{ hidePast=els.hidePast.checked; renderCalendar(); });
   $$('.tab').forEach(t=> t.addEventListener('click', ()=> setView(t.dataset.view)));
   els.pred.addEventListener('click', ()=>{
     if(els.pred.classList.contains('disabled')) return;
@@ -1478,6 +1709,7 @@ function peruClock(date,time){
     const r=$('#'+rid), v=$('#'+vid);
     r.addEventListener('input', ()=>{
       weights[key]=+r.value; v.textContent=r.value;
+      invalidateMC();
       if(view==='analysis') renderAnalysis();
       else if(autoMode) renderBracket();
     });
@@ -1486,8 +1718,43 @@ function peruClock(date,time){
     Object.assign(weights, DEFAULT_WEIGHTS);
     SLID.forEach(([rid,vid,key])=>{ $('#'+rid).value=weights[key]; $('#'+vid).textContent=weights[key]; });
   }
-  els.reset.addEventListener('click', ()=>{ overrides={}; renderBracket(); });
-  els.eloBtn.addEventListener('click', ()=>{ resetWeights(); loadElo(true); });
+  els.reset.addEventListener('click', ()=>{ overrides={}; invalidateMC(); renderBracket(); });
+  els.eloBtn.addEventListener('click', ()=>{ resetWeights(); invalidateMC(); loadElo(true); });
+
+  // ---- motor de simulación (Elo+forma / Elo dinámico) y modo de llave (favorito / Monte Carlo) ----
+  els.engineSel.addEventListener('change', ()=>{
+    engine = els.engineSel.value;          // 'form' | 'dyn'
+    invalidateMC();                        // el modelo cambia → MC previo inválido
+    updateSimTools();                      // alterna pesos de forma ⇄ K dinámico
+    if(autoMode && view==='bracket') renderBracket();
+  });
+  els.fillSel.addEventListener('change', ()=>{
+    fillMode = els.fillSel.value;          // 'greedy' | 'mc'
+    updateSimTools();                      // muestra/oculta sims + botón simular
+    if(autoMode && view==='bracket') renderBracket();   // si no hay mcResult, cae a favorito
+  });
+  els.rk.addEventListener('input', ()=>{
+    dynK = +els.rk.value; els.wk.textContent = els.rk.value;
+    invalidateMC();
+    if(engine==='dyn' && autoMode && view==='bracket') renderBracket();
+  });
+  els.simN.addEventListener('change', ()=>{ simN = +els.simN.value; });
+  els.simBtn.addEventListener('click', ()=>{
+    if(!matches){ toast('espera a que carguen los datos'); return; }
+    const model = currentModel();
+    if(!model){ toast('modelo no disponible todavía'); return; }
+    els.simBtn.disabled = true; els.simBtn.textContent = 'simulando…';
+    requestAnimationFrame(()=>{               // deja pintar el estado antes del cálculo pesado
+      try{
+        const rng = mulberry32(0x9e3779b9);   // semilla fija → resultados reproducibles
+        mcResult = simulateKO(matches, overrides, model, simN, rng);
+        if(!autoMode){ autoMode=true; els.auto.classList.add('on');
+          els.panel.classList.toggle('on', view==='bracket'); }
+        renderBracket();
+      } catch(err){ toast('falló la simulación: '+err.message); }
+      els.simBtn.disabled = false; els.simBtn.textContent = 'simular ▸';
+    });
+  });
   els.export.addEventListener('click', exportJSON);
   els.importBtn.addEventListener('click', ()=> els.fileInput.click());
   els.fileInput.addEventListener('change', e=>{ const f=e.target.files[0]; if(f) importJSON(f); e.target.value=''; });
@@ -1499,6 +1766,7 @@ function peruClock(date,time){
   });
   new ResizeObserver(()=>{ if(view==='bracket') drawConnectors(); }).observe(document.body);
 
+  updateSimTools();   // estado inicial de los controles del panel (forma visible, K/MC ocultos)
   load();
 })();
 </script>
