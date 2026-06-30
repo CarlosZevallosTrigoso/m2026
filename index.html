@@ -152,12 +152,14 @@
     overflow:hidden; position:relative; width:100%; max-width:188px;
   }
   .match .mnum{
-    position:absolute; top:2px; right:4px; font-size:8px; color:var(--ink-dim); opacity:.6;
+    position:absolute; top:3px; right:5px; font-size:8px; color:var(--ink-dim); opacity:.55;
+    pointer-events:none;
   }
   .side{
     display:flex; align-items:center; gap:7px; padding:5px 8px; cursor:default;
     border-bottom:1px solid var(--line);
   }
+  .side:first-child{padding-right:26px}   /* deja sitio al #num de la esquina */
   .side:last-child{border-bottom:none}
   .side .nm{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px}
   .side .sc{font-variant-numeric:tabular-nums; color:var(--ink-dim); min-width:1.2ch; text-align:right}
@@ -252,6 +254,16 @@
   .fb-mark{color:var(--warn); font-size:8px; margin-left:2px}
   #rankAll{padding:14px 20px 28px}
   #rankAll h2{font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-dim); margin:0 0 9px}
+  #surprise{padding:14px 20px 28px}
+  table.report td.match2{text-align:left}
+  table.report td.match2 .cell{display:flex; align-items:center; gap:6px; white-space:nowrap}
+  table.report td.match2 .sc{color:var(--ink); font-weight:600; font-variant-numeric:tabular-nums; margin:0 3px}
+  table.report td.match2 .w{font-weight:600; color:var(--ink)}
+  table.report td.match2 .l{color:var(--ink-dim)}
+  table.report td.match2 .pen{font-size:8px; color:var(--ink-dim); margin-left:3px}
+  table.report td.surp{position:relative; font-weight:600; min-width:108px}
+  table.report td.surp .bar{position:absolute; left:0; bottom:0; height:2px}
+  .s-exp{color:var(--ink-dim)} .s-lev{color:var(--ink)} .s-sor{color:var(--accent)} .s-bat{color:var(--warn)}
 
   /* ---------- estados ---------- */
   #status{
@@ -285,6 +297,7 @@
       <button class="tab active" data-view="groups">Grupos</button>
       <button class="tab" data-view="bracket">Eliminatorias</button>
       <button class="tab" data-view="analysis">Análisis</button>
+      <button class="tab" data-view="surprise">Sorpresas</button>
     </nav>
     <span class="spacer"></span>
     <label class="toggle disabled" id="autoToggle" title="Auto-predictor (modelo Elo + forma)">
@@ -356,6 +369,15 @@
         media del torneo (<b>P·media</b>). Ajusta los pesos arriba para ver cómo cambia. Ordena tocando una columna.
       </div>
       <div id="report"></div>
+    </section>
+
+    <section class="view" id="v-surprise">
+      <div class="brnote">
+        Cada partido jugado con la probabilidad <b>Elo</b> del favorito y cuán inusual fue el resultado.
+        Usa solo el prior Elo (no la forma del torneo, que sería circular). Es un snapshot actual del Elo, no el rating
+        exacto previo. <b>Los penales cuentan como empate</b> (el resultado en juego). Ordena tocando una columna.
+      </div>
+      <div id="surprise"></div>
     </section>
     </div>
     <div id="toast"></div>
@@ -565,6 +587,40 @@ function teamReport(teamList, metrics, z, eloMap, weights){
   return { rows, avg, min:Math.min(...xs), max:Math.max(...xs) };
 }
 
+/* ---- evaluador de sorpresa (puro) ---- */
+// expectativa Elo de A (cuenta el empate como 0.5)
+function eloExpect(a,b,D){ return 1/(1 + Math.pow(10, -(a-b)/(D||400))); }
+// resultado "en juego" para team1: 1 gana, .5 empate, 0 pierde. Penales = empate. null si no jugado.
+function outcomeShare(score){
+  if(!score) return null;
+  if(score.p) return 0.5;                 // shootout: empate en los 90/120
+  const s = score.et || score.ft;
+  if(!s) return null;
+  return s[0]>s[1] ? 1 : s[0]<s[1] ? 0 : 0.5;
+}
+// informe de sorpresa: por cada partido jugado, prob. Elo del favorito y cuán inusual fue el resultado.
+function surpriseReport(matches, eloMap, D){
+  D = D || 400; const out=[];
+  for(const m of matches){
+    const share = outcomeShare(m.score);
+    if(share==null) continue;
+    if(parsePlaceholder(m.team1) || parsePlaceholder(m.team2)) continue;
+    const ea = eloMap && eloMap[m.team1]!=null ? eloMap[m.team1] : null;
+    const eb = eloMap && eloMap[m.team2]!=null ? eloMap[m.team2] : null;
+    if(ea==null || eb==null) continue;     // sin Elo no hay medida de sorpresa
+    const weA = eloExpect(ea,eb,D), favA = weA>=0.5;
+    const favWe = favA ? weA : 1-weA;
+    const favShare = favA ? share : 1-share;
+    out.push({
+      num:m.num, date:m.date||'', round:m.round, group:m.group||null,
+      team1:m.team1, team2:m.team2, score:m.score, share,
+      favTeam: favA?m.team1:m.team2, favWe, pens: !!(m.score&&m.score.p),
+      surprise: Math.max(0, favWe - favShare),
+    });
+  }
+  return out;
+}
+
 
 /* ============================================================
    HILO PRINCIPAL — red, estado y render.
@@ -600,6 +656,7 @@ function teamReport(teamList, metrics, z, eloMap, weights){
   let metcache = null;                // métricas crudas (para el informe)
   let sortKey = 'strength', sortDir = -1;   // orden del informe (análisis)
   let rankSortKey = 'grank', rankSortDir = 1;   // orden del ranking general (grupos)
+  let surpSortKey = 'surprise', surpSortDir = -1;   // orden de la vista sorpresas
   const DEFAULT_WEIGHTS = { form:40, atk:20, def:20, mom:30, D:400 };
   const weights = { ...DEFAULT_WEIGHTS };
   const ELO_URL = 'https://raw.githubusercontent.com/ericsanmiguel/football_elo/main/docs/data/men/rankings.json';
@@ -610,7 +667,7 @@ function teamReport(teamList, metrics, z, eloMap, weights){
     stamp:$('#stamp'), pred:$('#predToggle'), auto:$('#autoToggle'), reset:$('#resetBtn'),
     export:$('#exportBtn'), importBtn:$('#importBtn'), simTools:$('#simTools'),
     fileInput:$('#fileInput'), toast:$('#toast'), panel:$('#modelPanel'), priorNote:$('#priorNote'),
-    report:$('#report'), eloBtn:$('#eloBtn'), rankAll:$('#rankAll'),
+    report:$('#report'), eloBtn:$('#eloBtn'), rankAll:$('#rankAll'), surprise:$('#surprise'),
   };
   function currentModel(){
     if(!zcache) return null;
@@ -1055,6 +1112,105 @@ function teamReport(teamList, metrics, z, eloMap, weights){
     els.report.innerHTML=''; els.report.appendChild(tbl);
   }
 
+  // ---------- vista sorpresas ----------
+  const ROUND_ES = {'Round of 32':'Dieciseisavos','Round of 16':'Octavos','Quarter-final':'Cuartos',
+    'Semi-final':'Semifinales','Match for third place':'3er puesto','Final':'Final'};
+  function roundLabel(r){ return r.group ? r.group.replace('Group ','Grupo ') : (ROUND_ES[r.round]||r.round); }
+  function stageRank(r){
+    if(r.group){ const md=/Matchday (\d+)/.exec(r.round); return md?+md[1]:1; }
+    return {'Round of 32':32,'Round of 16':33,'Quarter-final':34,'Semi-final':35,'Match for third place':36,'Final':37}[r.round]||50;
+  }
+  function surpriseLabel(s){
+    const p=s*100;
+    if(p<20) return ['esperado','s-exp'];
+    if(p<40) return ['leve','s-lev'];
+    if(p<60) return ['sorpresa','s-sor'];
+    return ['batacazo','s-bat'];
+  }
+  const SURP_COLS = [
+    ['date','Fecha','',1], ['match','Partido','match2',1], ['round','Ronda','l',1],
+    ['fav','Favorito (Elo)','',-1], ['surprise','Sorpresa','surp',-1],
+  ];
+  function surpSortVal(r,key){
+    if(key==='date') return r.date;
+    if(key==='match') return r.team1;
+    if(key==='round') return stageRank(r);
+    if(key==='fav') return r.favWe;
+    return r.surprise;
+  }
+  function renderSurprise(){
+    if(!els.surprise) return;
+    if(!matches){ els.surprise.textContent=''; return; }
+    if(!(eloAvailable && eloMap)){
+      els.surprise.innerHTML='<h2>Sorpresas</h2><p class="dim" style="padding:0 0 8px">Necesita el prior Elo. Pulsa ↻ Elo o revisa la conexión.</p>';
+      return;
+    }
+    const rep = surpriseReport(matches, eloMap, weights.D);
+    rep.sort((a,b)=>{
+      const av=surpSortVal(a,surpSortKey), bv=surpSortVal(b,surpSortKey);
+      const c = (typeof av==='string') ? av.localeCompare(bv) : (av-bv);
+      return surpSortDir*c;
+    });
+
+    const tbl=document.createElement('table'); tbl.className='report';
+    const thead=document.createElement('thead'); const htr=document.createElement('tr');
+    SURP_COLS.forEach(([key,label,cls,defDir])=>{
+      const th=document.createElement('th'); th.textContent=label;
+      if(cls==='match2'||cls==='l') th.classList.add('l');
+      if(key===surpSortKey) th.classList.add('sorted');
+      th.addEventListener('click', ()=>{
+        if(surpSortKey===key) surpSortDir=-surpSortDir;
+        else { surpSortKey=key; surpSortDir=defDir; }
+        renderSurprise();
+      });
+      htr.appendChild(th);
+    });
+    thead.appendChild(htr); tbl.appendChild(thead);
+
+    const tb=document.createElement('tbody');
+    const maxS = Math.max(0.01, ...rep.map(r=>r.surprise));
+    for(const r of rep){
+      const ft = r.score.ft || [0,0];
+      const w1 = r.share===1, w2 = r.share===0;
+      const tr=document.createElement('tr');
+      // fecha
+      const tdD=document.createElement('td'); tdD.textContent = r.date ? r.date.slice(5) : '—'; tr.appendChild(tdD);
+      // partido
+      const tdM=document.createElement('td'); tdM.className='match2';
+      const cell=document.createElement('div'); cell.className='cell';
+      cell.appendChild(flagEl(r.team1));
+      const n1=document.createElement('span'); n1.className=w1?'w':(w2?'l':''); n1.textContent=esName(r.team1); cell.appendChild(n1);
+      const sc=document.createElement('span'); sc.className='sc'; sc.textContent=ft[0]+'–'+ft[1]; cell.appendChild(sc);
+      const n2=document.createElement('span'); n2.className=w2?'w':(w1?'l':''); n2.textContent=esName(r.team2); cell.appendChild(n2);
+      cell.appendChild(flagEl(r.team2));
+      if(r.pens){ const pe=document.createElement('span'); pe.className='pen'; pe.textContent='(pen '+r.score.p[0]+'–'+r.score.p[1]+')'; cell.appendChild(pe); }
+      tdM.appendChild(cell); tr.appendChild(tdM);
+      // ronda
+      const tdR=document.createElement('td'); tdR.className='l'; tdR.textContent=roundLabel(r); tr.appendChild(tdR);
+      // favorito + %
+      const tdF=document.createElement('td');
+      const fc=document.createElement('span'); fc.className='cell'; fc.style.justifyContent='flex-end'; fc.style.display='inline-flex'; fc.style.alignItems='center'; fc.style.gap='6px';
+      fc.appendChild(flagEl(r.favTeam));
+      const fn=document.createElement('span'); fn.textContent=esName(r.favTeam); fc.appendChild(fn);
+      const fp=document.createElement('span'); fp.style.fontWeight='600'; fp.textContent=Math.round(r.favWe*100)+'%'; fc.appendChild(fp);
+      tdF.appendChild(fc); tr.appendChild(tdF);
+      // sorpresa
+      const tdS=document.createElement('td'); tdS.className='surp';
+      const [lab,cl]=surpriseLabel(r.surprise);
+      tdS.classList.add(cl);
+      tdS.textContent = Math.round(r.surprise*100)+' · '+lab;
+      const bar=document.createElement('span'); bar.className='bar';
+      bar.style.width=Math.round(r.surprise/maxS*100)+'%';
+      bar.style.background = cl==='s-bat'?'var(--warn)' : cl==='s-sor'?'var(--accent)' : 'var(--line-2)';
+      tdS.appendChild(bar);
+      tr.appendChild(tdS);
+      tb.appendChild(tr);
+    }
+    tbl.appendChild(tb);
+    els.surprise.innerHTML='<h2 style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim);margin:0 0 9px">Sorpresas — partidos jugados</h2>';
+    els.surprise.appendChild(tbl);
+  }
+
   // ---------- carga / refresh ----------
   function setStatus(on,msg,retry){
     els.status.classList.toggle('on',!!on);
@@ -1078,6 +1234,7 @@ function teamReport(teamList, metrics, z, eloMap, weights){
       renderGroups();
       renderBracket();
       renderAnalysis();
+      renderSurprise();
       loadElo();                                       // prior Elo aparte; no bloquea ni rompe la carga
     }catch(err){
       if(matches){ // conservar último render bueno
@@ -1112,6 +1269,7 @@ function teamReport(teamList, metrics, z, eloMap, weights){
     if(matches) renderGroups();                 // el ranking general usa la posición Elo
     if(view==='bracket' && autoMode) renderBracket();
     else if(view==='analysis') renderAnalysis();
+    else if(view==='surprise') renderSurprise();   // la sorpresa depende del Elo
   }
   function setPrior(updated){
     els.priorNote.classList.toggle('off', !eloAvailable);
@@ -1183,6 +1341,7 @@ function teamReport(teamList, metrics, z, eloMap, weights){
     updateSimTools();
     if(bracket) requestAnimationFrame(drawConnectors);
     if(v==='analysis') renderAnalysis();
+    if(v==='surprise') renderSurprise();
   }
   $$('.tab').forEach(t=> t.addEventListener('click', ()=> setView(t.dataset.view)));
   els.pred.addEventListener('click', ()=>{
