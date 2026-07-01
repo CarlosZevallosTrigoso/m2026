@@ -24,7 +24,9 @@
     --auto-tint:#e9eef2;
     --radius:2px;
     --mono:'Fira Code', ui-monospace, "DejaVu Sans Mono", Menlo, Consolas, monospace;
+    --scale:1.5;              /* tamaño de interfaz: L=1.5 (grande) · S=0.75 (mitad) */
   }
+  body.size-s{ --scale:0.75; }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
   body{
@@ -32,11 +34,11 @@
     font-family:var(--mono); font-size:12px; line-height:1.45;
     -webkit-font-smoothing:antialiased; overflow:hidden;
   }
-  /* escala global 1.5×: el contenido se maqueta a viewport/1.5 y se escala visualmente,
+  /* escala global var(--scale): el contenido se maqueta a viewport/escala y se escala visualmente,
      ocupando exactamente el viewport. transform:scale no depende de las rarezas de zoom. */
   #scaler{
-    width:calc(100% / 1.5); height:calc(100% / 1.5);
-    transform:scale(1.5); transform-origin:0 0;
+    width:calc(100% / var(--scale)); height:calc(100% / var(--scale));
+    transform:scale(var(--scale)); transform-origin:0 0;
     display:flex; flex-direction:column;
   }
   /* ---------- barra superior ---------- */
@@ -62,6 +64,14 @@
     padding:5px 9px; transition:border-color .12s,color .12s;
   }
   button.icon:hover{border-color:var(--accent); color:var(--accent)}
+  .sizeseg{display:inline-flex; border:1px solid var(--line-2); border-radius:var(--radius); overflow:hidden}
+  .sizeseg .segbtn{
+    font-family:var(--mono); font-size:11px; font-weight:600; letter-spacing:.04em; cursor:pointer;
+    background:var(--bg); color:var(--ink-dim); border:none; padding:5px 9px; transition:background .12s,color .12s;
+  }
+  .sizeseg .segbtn + .segbtn{border-left:1px solid var(--line-2)}
+  .sizeseg .segbtn:hover{color:var(--accent)}
+  .sizeseg .segbtn.active{background:var(--accent); color:#fff}
   #stamp{font-variant-numeric:tabular-nums}
   /* switch modo predictivo */
   .toggle{display:flex; align-items:center; gap:7px; cursor:pointer; user-select:none}
@@ -289,6 +299,10 @@
   .cal-teams .nm.ph{color:var(--ink-dim); font-style:italic}
   .cal-teams .sc{font-weight:600; font-variant-numeric:tabular-nums; margin:0 3px; color:var(--ink)}
   .cal-teams .vs{color:var(--ink-dim); margin:0 5px}
+  .cal-teams .pw{font-size:10px; color:var(--ink-dim); font-variant-numeric:tabular-nums; margin:0 3px}
+  .cal-teams .pw.fav{color:var(--accent); font-weight:600}
+  .cal-teams .pdraw{font-size:10px; color:var(--ink-dim); font-variant-numeric:tabular-nums; margin:0 5px;
+    border:1px solid var(--line-2); border-radius:2px; padding:0 4px}
   .cal-teams .pen{font-size:8px; color:var(--ink-dim); margin-left:4px}
   .cal-loc{font-size:10px; color:var(--ink-dim); overflow:hidden; text-overflow:ellipsis}
   .cal-stage{font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-dim); text-align:right; white-space:nowrap}
@@ -355,6 +369,10 @@
     <input type="file" id="fileInput" accept="application/json,.json" style="display:none">
     <div class="ctl">
       <span id="stamp">—</span>
+      <span class="sizeseg" id="sizeSeg" title="Tamaño de la interfaz: S = mitad, L = grande">
+        <button class="segbtn" data-size="s">S</button>
+        <button class="segbtn active" data-size="l">L</button>
+      </span>
       <button class="icon" id="refreshBtn">↻ refrescar</button>
       <button class="icon" id="fsBtn" title="Pantalla completa">⤢</button>
     </div>
@@ -432,6 +450,8 @@
       <div class="brnote">
         Todos los partidos por día (<b>hora de Perú</b>, UTC-5). Debajo de cada uno, la <b>hora local</b> de la sede
         con su huso y el estadio. La hora local y su huso vienen del propio calendario oficial; Perú no tiene horario de verano.
+        En los partidos por jugar se muestra la probabilidad de cada equipo: en grupos, <b>victoria · empate (E) · victoria</b>
+        (modelo 1X2 con la tasa de empate calibrada al torneo); en eliminatorias, dos vías. Son estimaciones del mismo modelo Elo, no pronósticos validados.
       </div>
       <label class="calfilter"><input type="checkbox" id="hidePast"> ocultar partidos ya jugados</label>
       <div id="calendar"></div>
@@ -769,6 +789,30 @@ function scoreShares(rows){
     calib:calib.filter(c=>c.n).map(c=>({lo:c.lo,hi:c.hi,pred:c.sum/c.n,obs:c.obs/c.n,n:c.n})) };
 }
 
+/* ---- 1X2 por partido (modelo Davidson) ---- */
+// [P(gana A), P(empate), P(gana B)] a partir de las fuerzas. nu controla la frecuencia de empate.
+// Condicionado a resultado decisivo, reproduce EXACTAMENTE la logística de KO: pA/(pA+pB)=1/(1+10^-x).
+function winDrawLoss(strA, strB, D, nu){
+  D=D||400; nu=(nu==null?1:nu);
+  const x=(strA-strB)/D, R=Math.pow(10,x), sq=Math.pow(10,x/2), den=R+1+nu*sq;
+  return [ R/den, nu*sq/den, 1/den ];
+}
+// calibra nu para que la P(empate) media del modelo iguale la tasa de empate observada en grupos jugados.
+function calibrateNu(matches, model, D){
+  D=D||400;
+  const pairs=[]; let drawn=0;
+  for(const m of matches){ if(!m.group || !m.score || !m.score.ft) continue;
+    if(parsePlaceholder(m.team1)||parsePlaceholder(m.team2)) continue;
+    pairs.push([model.strength(m.team1), model.strength(m.team2)]);
+    if(m.score.ft[0]===m.score.ft[1]) drawn++; }
+  const tot=pairs.length; if(tot<3) return 1.0;
+  const target=drawn/tot;
+  const meanDraw=nu=> pairs.reduce((s,pr)=> s+winDrawLoss(pr[0],pr[1],D,nu)[1], 0)/pairs.length;
+  let lo=0, hi=6; if(meanDraw(hi)<target) return hi;
+  for(let i=0;i<50;i++){ const mid=(lo+hi)/2; if(meanDraw(mid)<target) lo=mid; else hi=mid; }
+  return (lo+hi)/2;
+}
+
 
 /* ============================================================
    HILO PRINCIPAL — red, estado y render.
@@ -807,6 +851,7 @@ function scoreShares(rows){
   let surpSortKey = 'surprise', surpSortDir = -1;   // orden de la vista sorpresas
   let hidePast = false;                              // calendario: ocultar partidos ya jugados
   let engine='form', fillMode='greedy', dynK=40, simN=20000, mcResult=null;   // motores de simulación
+  let dispModel=null;   // modelo para mostrar % en cruces por jugar (independiente del modo auto)
   const DEFAULT_WEIGHTS = { form:40, atk:20, def:20, mom:30, D:400 };
   const weights = { ...DEFAULT_WEIGHTS };
   const ELO_URL = 'https://raw.githubusercontent.com/ericsanmiguel/football_elo/main/docs/data/men/rankings.json';
@@ -821,7 +866,7 @@ function scoreShares(rows){
     hidePast:$('#hidePast'), validation:$('#validation'),
     engineSel:$('#engineSel'), fillSel:$('#fillSel'), kWrap:$('#k-wrap'), mcWrap:$('#mc-wrap'),
     simN:$('#simN'), simBtn:$('#simBtn'), mcSummary:$('#mcSummary'), rk:$('#r-k'), wk:$('#w-k'),
-    formKnobs: $$('.form-knob'),
+    formKnobs: $$('.form-knob'), sizeSeg:$('#sizeSeg'),
   };
   function currentModel(){
     if(!zcache) return null;
@@ -1062,6 +1107,7 @@ function scoreShares(rows){
     return '<img src="https://flagcdn.com/'+iso+'.svg" alt="" style="width:18px;height:13px;object-fit:cover;border-radius:1px" onerror="this.style.display=\'none\'">';
   }
   function renderBracket(){
+    dispModel = zcache ? currentModel() : null;   // para % en cruces por jugar, con o sin auto
     const useMC = autoMode && fillMode==='mc' && mcResult;
     const R = useMC ? mcResolver(matches, mcResult)
                     : buildResolver(matches, overrides, autoMode ? currentModel() : null);
@@ -1121,7 +1167,11 @@ function scoreShares(rows){
     const src=R.source(m.num);                           // 'manual'|'real'|'auto'|null
     const sl=scoreLine(m);
     const realIdx = koWinnerIndex(m.score);              // -1 si no jugado
-    const probs = R.probPair(m.num);                     // [P1,P2] o null
+    let probs = R.probPair(m.num);                       // [P1,P2] o null
+    // si el resolver no da prob (p.ej. auto apagado) pero hay modelo y equipos conocidos, calcula 2 vías
+    if(!probs && realIdx<0 && t1 && t2 && dispModel){
+      const p1=dispModel.prob(t1,t2); probs=[p1, 1-p1];
+    }
 
     const box=document.createElement('div'); box.className='match'; box.dataset.num=m.num;
     const tag=document.createElement('span'); tag.className='mnum'; tag.textContent='#'+m.num; box.appendChild(tag);
@@ -1147,10 +1197,10 @@ function scoreShares(rows){
       side.appendChild(nm);
       if(side.classList.contains('diverge')){ const e=document.createElement('span'); e.className='mtag div'; e.textContent='≠ real'; side.appendChild(e); }
       else if(side.classList.contains('sim')){ const e=document.createElement('span'); e.className='mtag sim'; e.textContent='sim'; side.appendChild(e); }
-      // valor a la derecha: marcador real, o % del modelo si el cruce es auto
+      // valor a la derecha: marcador real, o % de victoria si el cruce está por jugar
       if(sl && sl.ft){
         const sc=document.createElement('span'); sc.className='sc'; sc.textContent=sl.ft[idx]; side.appendChild(sc);
-      } else if(src==='auto' && probs){
+      } else if(probs){
         const p=document.createElement('span'); p.className='prob'; p.textContent=Math.round(probs[idx]*100)+'%'; side.appendChild(p);
       } else {
         const sc=document.createElement('span'); sc.className='sc'; side.appendChild(sc);
@@ -1417,7 +1467,7 @@ function scoreShares(rows){
     if(pl) return { txt:(pl.kind==='W'?'Ganador ':'Perdedor ')+pl.num, ph:true };
     return { txt:esName(t), ph:false };
   }
-  function calRow(m,p){
+  function calRow(m,p,ctx){
     const sc=m.score, ft=sc&&sc.ft;
     const played = !!(ft && ft.length===2 && typeof ft[0]==='number');
     const share = played ? outcomeShare(sc) : null;   // 1/.5/0
@@ -1433,13 +1483,28 @@ function scoreShares(rows){
     const mid=document.createElement('div'); mid.className='cal-match';
     const teams=document.createElement('div'); teams.className='cal-teams';
     const a=teamLabel(m.team1), b=teamLabel(m.team2);
+
+    // probabilidades 1X2 (grupo) o 2 vías (KO) para partidos por jugar con equipos conocidos
+    let pr=null;
+    if(!played && ctx && ctx.model && !a.ph && !b.ph){
+      const sA=ctx.model.strength(m.team1), sB=ctx.model.strength(m.team2);
+      const wdl=winDrawLoss(sA, sB, ctx.D, ctx.nu);
+      if(m.group){ pr={ p1:wdl[0], pd:wdl[1], p2:wdl[2], draw:true }; }
+      else { const s=wdl[0]+wdl[2]; pr={ p1:wdl[0]/s, p2:wdl[2]/s, draw:false }; }  // KO: condicionado a decisivo
+    }
+    const pct=x=> (x>=0.995?'99':x<0.005?'<1':Math.round(x*100))+'%';
+
     if(!a.ph) teams.appendChild(flagEl(m.team1));
     const n1=document.createElement('span'); n1.className='nm'+(a.ph?' ph':'')+((played&&share===1)?' w':''); n1.textContent=a.txt; teams.appendChild(n1);
+    if(pr){ const w=document.createElement('span'); w.className='pw'+(pr.p1>=pr.p2?' fav':''); w.textContent=pct(pr.p1); teams.appendChild(w); }
     if(played){
       const s=document.createElement('span'); s.className='sc'; s.textContent=ft[0]+'–'+ft[1]; teams.appendChild(s);
+    }else if(pr && pr.draw){
+      const d=document.createElement('span'); d.className='pdraw'; d.textContent='E '+pct(pr.pd); teams.appendChild(d);
     }else{
       const vs=document.createElement('span'); vs.className='vs'; vs.textContent='vs'; teams.appendChild(vs);
     }
+    if(pr){ const w=document.createElement('span'); w.className='pw'+(pr.p2>pr.p1?' fav':''); w.textContent=pct(pr.p2); teams.appendChild(w); }
     const n2=document.createElement('span'); n2.className='nm'+(b.ph?' ph':'')+((played&&share===0)?' w':''); n2.textContent=b.txt; teams.appendChild(n2);
     if(!b.ph) teams.appendChild(flagEl(m.team2));
     if(played && sc.p){ const pe=document.createElement('span'); pe.className='pen'; pe.textContent='(pen '+sc.p[0]+'–'+sc.p[1]+')'; teams.appendChild(pe); }
@@ -1468,6 +1533,9 @@ function scoreShares(rows){
       .map(m=>({ m, p:peruClock(m.date, m.time) }))
       .sort((x,y)=> (x.p.ms-y.p.ms) || ((x.m.num||0)-(y.m.num||0)) );
     if(!rows.length){ els.calendar.innerHTML='<p class="dim" style="padding:10px 0">No quedan partidos por jugar.</p>'; return; }
+    // modelo activo + nu de empate (Davidson), calculados una vez para todo el calendario
+    const model = zcache ? currentModel() : null;
+    const ctx = model ? { model, nu:calibrateNu(matches, model, weights.D), D:weights.D } : null;
     const frag=document.createDocumentFragment();
     let curKey=null, dayEl=null;
     for(const {m,p} of rows){
@@ -1478,7 +1546,7 @@ function scoreShares(rows){
         const h=document.createElement('h3'); h.textContent=DOW_ES[p.dow]+' '+p.d+' de '+MES_ES[p.mo];
         dayEl.appendChild(h); frag.appendChild(dayEl);
       }
-      dayEl.appendChild(calRow(m,p));
+      dayEl.appendChild(calRow(m,p,ctx));
     }
     els.calendar.innerHTML=''; els.calendar.appendChild(frag);
   }
@@ -1599,10 +1667,11 @@ function scoreShares(rows){
       toast(eloAvailable ? ('Elo actualizado'+(okDate?' · '+okDate:'')) : 'No se pudo traer el Elo — el modelo sigue con la forma del torneo');
     }
     if(matches) renderGroups();                 // el ranking general usa la posición Elo
-    if(view==='bracket' && autoMode) renderBracket();
+    if(view==='bracket') renderBracket();       // los % de los cruces dependen del Elo
     else if(view==='analysis') renderAnalysis();
     else if(view==='surprise') renderSurprise();   // la sorpresa depende del Elo
     else if(view==='valid') renderValidation();     // la validación depende del Elo
+    else if(view==='cal') renderCalendar();          // los % del calendario dependen del Elo
   }
   function setPrior(updated){
     els.priorNote.classList.toggle('off', !eloAvailable);
@@ -1764,6 +1833,20 @@ function scoreShares(rows){
     if(!document.fullscreenElement) document.documentElement.requestFullscreen?.();
     else document.exitFullscreen?.();
   });
+
+  // ---------- tamaño de interfaz (S = mitad · L = grande) ----------
+  function setSize(size){
+    const s = size==='s' ? 's' : 'l';
+    document.body.classList.toggle('size-s', s==='s');
+    if(els.sizeSeg) els.sizeSeg.querySelectorAll('.segbtn').forEach(b=> b.classList.toggle('active', b.dataset.size===s));
+    try{ localStorage.setItem('forja-mundial-size', s); }catch(_){}   // persiste en GitHub Pages; no rompe en preview
+    if(view==='bracket') requestAnimationFrame(drawConnectors);       // la maqueta cambió: reposiciona conectores
+  }
+  if(els.sizeSeg) els.sizeSeg.addEventListener('click', e=>{
+    const b=e.target.closest('.segbtn'); if(!b) return; setSize(b.dataset.size);
+  });
+  (function initSize(){ let s='l'; try{ s=localStorage.getItem('forja-mundial-size')||'l'; }catch(_){}
+    if(s==='s') setSize('s'); })();
   new ResizeObserver(()=>{ if(view==='bracket') drawConnectors(); }).observe(document.body);
 
   updateSimTools();   // estado inicial de los controles del panel (forma visible, K/MC ocultos)
