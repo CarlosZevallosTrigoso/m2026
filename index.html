@@ -24,9 +24,8 @@
     --auto-tint:#e9eef2;
     --radius:2px;
     --mono:'Fira Code', ui-monospace, "DejaVu Sans Mono", Menlo, Consolas, monospace;
-    --scale:1.5;              /* tamaño de interfaz: L=1.5 (grande) · S=0.75 (mitad) */
+    --scale:1.5;              /* escala base de interfaz (fija) */
   }
-  body.size-s{ --scale:0.75; }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
   body{
@@ -145,9 +144,12 @@
   /* ---------- vista bracket ---------- */
   #v-bracket{display:none}
   #v-bracket.active{display:block}
-  #bracket-wrap{position:relative; overflow:auto; height:100%}
+  #bracket-wrap{position:relative; overflow:auto; height:100%; scrollbar-gutter:stable}
+  #bracket-fit{margin:0 auto}                                   /* footprint escalado; centra en modo pantalla */
+  #bracket-inner{position:relative; transform-origin:top left}  /* escala ancho/pantalla; ancla el SVG */
   #connectors{position:absolute; top:0; left:0; pointer-events:none}
   #cols{position:relative; display:flex; gap:22px; padding:20px 24px; width:100%}
+  .fitbar{display:flex; justify-content:flex-end; padding:4px 24px 0}
   .col{display:flex; flex-direction:column; justify-content:space-around; flex:1 1 0; min-width:130px}
   .col-center{flex:1.4 1 0; min-width:172px; align-items:center}
   .col-center .col-body{justify-content:center; flex:1; gap:12px}
@@ -369,10 +371,6 @@
     <input type="file" id="fileInput" accept="application/json,.json" style="display:none">
     <div class="ctl">
       <span id="stamp">—</span>
-      <span class="sizeseg" id="sizeSeg" title="Tamaño de la interfaz: S = mitad, L = grande">
-        <button class="segbtn" data-size="s">S</button>
-        <button class="segbtn active" data-size="l">L</button>
-      </span>
       <button class="icon" id="refreshBtn">↻ refrescar</button>
       <button class="icon" id="fsBtn" title="Pantalla completa">⤢</button>
     </div>
@@ -415,10 +413,18 @@
         Estado <b>real</b> de la eliminatoria. <b>auto</b> = el modelo rellena los cruces sin jugar con su favorita
         (Elo + forma). <b>predictivo</b> = marcas ganadores a mano, encima del auto. <b>reiniciar</b> borra solo tus picks.
       </div>
+      <div class="fitbar">
+        <span class="sizeseg" id="fitSeg" title="Cómo encaja el cuadro en la pantalla">
+          <button class="segbtn active" data-fit="width">ancho</button>
+          <button class="segbtn" data-fit="viewport">pantalla</button>
+        </span>
+      </div>
       <div id="mcSummary" style="display:none"></div>
       <div id="bracket-wrap">
-        <svg id="connectors"></svg>
-        <div id="cols"></div>
+        <div id="bracket-fit"><div id="bracket-inner">
+          <svg id="connectors"></svg>
+          <div id="cols"></div>
+        </div></div>
         <div class="legend">
           <span><span class="swatch q"></span> clasificado / pick simulado</span>
           <span><span class="swatch t"></span> mejor tercero</span>
@@ -858,7 +864,7 @@ function calibrateNu(matches, model, D){
 
   const els = {
     status:$('#status'), grid:$('#groupsGrid'), cols:$('#cols'),
-    svg:$('#connectors'), wrap:$('#bracket-wrap'),
+    svg:$('#connectors'), wrap:$('#bracket-wrap'), fit:$('#bracket-fit'), inner:$('#bracket-inner'),
     stamp:$('#stamp'), pred:$('#predToggle'), auto:$('#autoToggle'), reset:$('#resetBtn'),
     export:$('#exportBtn'), importBtn:$('#importBtn'), simTools:$('#simTools'),
     fileInput:$('#fileInput'), toast:$('#toast'), panel:$('#modelPanel'), priorNote:$('#priorNote'),
@@ -866,7 +872,7 @@ function calibrateNu(matches, model, D){
     hidePast:$('#hidePast'), validation:$('#validation'),
     engineSel:$('#engineSel'), fillSel:$('#fillSel'), kWrap:$('#k-wrap'), mcWrap:$('#mc-wrap'),
     simN:$('#simN'), simBtn:$('#simBtn'), mcSummary:$('#mcSummary'), rk:$('#r-k'), wk:$('#w-k'),
-    formKnobs: $$('.form-knob'), sizeSeg:$('#sizeSeg'),
+    formKnobs: $$('.form-knob'), fitSeg:$('#fitSeg'),
   };
   function currentModel(){
     if(!zcache) return null;
@@ -1148,7 +1154,7 @@ function calibrateNu(matches, model, D){
     // mitad B: SF -> R32, del centro hacia afuera (profundidad 0,1,2,3)
     for(let d=0; d<=3; d++) els.cols.appendChild(makeCol(DEPTH_LABEL[d], HALF_B[d], byNum, R));
 
-    requestAnimationFrame(drawConnectors);
+    requestAnimationFrame(layoutBracket);
     updateSimTools();
   }
   // ¿el ganador de num depende de algún override aguas arriba?
@@ -1751,7 +1757,7 @@ function calibrateNu(matches, model, D){
     els.auto.classList.toggle('disabled', !bracket);
     els.panel.classList.toggle('on', (bracket && autoMode) || v==='analysis');
     updateSimTools();
-    if(bracket) requestAnimationFrame(drawConnectors);
+    if(bracket) requestAnimationFrame(layoutBracket);
     if(v==='analysis') renderAnalysis();
     if(v==='surprise') renderSurprise();
     if(v==='cal') renderCalendar();
@@ -1834,20 +1840,43 @@ function calibrateNu(matches, model, D){
     else document.exitFullscreen?.();
   });
 
-  // ---------- tamaño de interfaz (S = mitad · L = grande) ----------
-  function setSize(size){
-    const s = size==='s' ? 's' : 'l';
-    document.body.classList.toggle('size-s', s==='s');
-    if(els.sizeSeg) els.sizeSeg.querySelectorAll('.segbtn').forEach(b=> b.classList.toggle('active', b.dataset.size===s));
-    try{ localStorage.setItem('forja-mundial-size', s); }catch(_){}   // persiste en GitHub Pages; no rompe en preview
-    if(view==='bracket') requestAnimationFrame(drawConnectors);       // la maqueta cambió: reposiciona conectores
+  // ---------- encaje del cuadro (ancho = llena el ancho · pantalla = cuadro completo) ----------
+  // el bracket tiene un ancho mínimo irreducible (9 columnas); se maqueta al ancho disponible
+  // y se escala con transform para caber. drawConnectors trabaja en coords de layout (offset*),
+  // inmunes al transform; el SVG vive dentro de #bracket-inner, así que escala junto a #cols.
+  let fitMode = 'width';
+  function layoutBracket(){
+    const inner=els.inner, fit=els.fit, wrap=els.wrap, cols=els.cols;
+    if(!inner || !fit || !wrap || !cols) return;
+    inner.style.transform = 'none';                 // medir la maqueta sin escalar
+    const availW = wrap.clientWidth;
+    if(availW <= 0){ requestAnimationFrame(layoutBracket); return; }  // vista aún oculta
+    inner.style.width = availW + 'px';              // #cols (width:100%) se maqueta a este ancho
+    drawConnectors();                               // dimensiona el SVG y traza en coords de layout
+    const nw = cols.scrollWidth, nh = cols.scrollHeight;  // ancho/alto naturales del contenido
+    let f = Math.min(1, availW / nw);               // cap en 1: nunca agranda, solo encoge
+    if(fitMode === 'viewport'){
+      const availH = wrap.clientHeight;
+      if(availH > 0) f = Math.min(f, availH / nh);
+    }
+    inner.style.transform = 'scale(' + f + ')';
+    fit.style.width  = Math.round(nw * f) + 'px';   // footprint escalado: sin scroll horizontal fantasma
+    fit.style.height = Math.round(nh * f) + 'px';   // y centra vía margin:auto cuando sobra ancho
   }
-  if(els.sizeSeg) els.sizeSeg.addEventListener('click', e=>{
-    const b=e.target.closest('.segbtn'); if(!b) return; setSize(b.dataset.size);
+  function setFit(mode){
+    fitMode = mode==='viewport' ? 'viewport' : 'width';
+    if(els.fitSeg) els.fitSeg.querySelectorAll('.segbtn').forEach(b=> b.classList.toggle('active', b.dataset.fit===fitMode));
+    try{ localStorage.setItem('forja-mundial-fit', fitMode); }catch(_){}   // persiste; no rompe en preview
+    if(view==='bracket') requestAnimationFrame(layoutBracket);
+  }
+  if(els.fitSeg) els.fitSeg.addEventListener('click', e=>{
+    const b=e.target.closest('.segbtn'); if(b) setFit(b.dataset.fit);
   });
-  (function initSize(){ let s='l'; try{ s=localStorage.getItem('forja-mundial-size')||'l'; }catch(_){}
-    if(s==='s') setSize('s'); })();
-  new ResizeObserver(()=>{ if(view==='bracket') drawConnectors(); }).observe(document.body);
+  (function initFit(){ let m='width'; try{ m=localStorage.getItem('forja-mundial-fit')||'width'; }catch(_){}
+    fitMode = m==='viewport' ? 'viewport' : 'width';
+    if(els.fitSeg) els.fitSeg.querySelectorAll('.segbtn').forEach(b=> b.classList.toggle('active', b.dataset.fit===fitMode));
+  })();
+  new ResizeObserver(()=>{ if(view==='bracket') layoutBracket(); }).observe(document.body);
 
   updateSimTools();   // estado inicial de los controles del panel (forma visible, K/MC ocultos)
   load();
